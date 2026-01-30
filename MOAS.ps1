@@ -19,6 +19,7 @@ V.97 Fixed PS 2.0 compatibility and permissions handling for files vs directorie
 V.98 Added additional ICS/SCADA protocol port detection
 V.99 Added admin check, enhanced disk/network info, progress indicator, silent mode, summary report
 V1.00 Enhanced non-admin mode: detailed skip/collect list, graceful degradation for SFC, GUI shows SFC as disabled when not admin
+V1.01 Added -Help command-line flag with comprehensive usage documentation
 Known Working Systems:
 Windows 7 Powershell 2.0
 Windows 10 Powershell 5.0
@@ -29,12 +30,85 @@ Windows Server 2012-2022
 #region Command-Line Parameters
 # Silent mode parameters: -Silent -RunSCAP -ScapPath "path" -RunSFC [1|2] -LogDays 90
 param(
+    [switch]$Help,
     [switch]$Silent,
     [switch]$RunSCAPParam,
     [string]$ScapPathParam = "",
     [string]$RunSFCParam = "3",
     [int]$LogDaysParam = 90
 )
+#endregion
+
+#region Help Display
+if ($Help) {
+    Write-Host ""
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host "  MOAS - System Inventory and Audit Tool v1.00" -ForegroundColor Cyan
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "DESCRIPTION:" -ForegroundColor Yellow
+    Write-Host "  Collects system inventory data including hardware, software,"
+    Write-Host "  network configuration, local users, event logs, and optionally"
+    Write-Host "  runs SCAP compliance and SFC scans."
+    Write-Host ""
+    Write-Host "USAGE:" -ForegroundColor Yellow
+    Write-Host "  .\MOAS.ps1                    # Interactive GUI mode"
+    Write-Host "  .\MOAS.ps1 -Help              # Display this help message"
+    Write-Host "  .\MOAS.ps1 -Silent [options]  # Silent/batch mode"
+    Write-Host ""
+    Write-Host "PARAMETERS:" -ForegroundColor Yellow
+    Write-Host "  -Help              Display this help message and exit"
+    Write-Host ""
+    Write-Host "  -Silent            Run in silent mode (no GUI, no prompts)"
+    Write-Host ""
+    Write-Host "  -RunSCAPParam      Enable SCAP scan (use with -Silent)"
+    Write-Host ""
+    Write-Host "  -ScapPathParam     Path to SCAP executable (cscc.exe)"
+    Write-Host "                     Default: searches script directory"
+    Write-Host ""
+    Write-Host "  -RunSFCParam       SFC scan mode (use with -Silent)"
+    Write-Host "                     1 = SFC /SCANNOW"
+    Write-Host "                     2 = SFC /VERIFYONLY"
+    Write-Host "                     3 = Do not run SFC (default)"
+    Write-Host ""
+    Write-Host "  -LogDaysParam      Number of days of event logs to collect"
+    Write-Host "                     Range: 1-365, Default: 90"
+    Write-Host ""
+    Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "  # Interactive mode with GUI"
+    Write-Host "  .\MOAS.ps1" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  # Silent mode with defaults (90 days logs, no SCAP/SFC)"
+    Write-Host "  .\MOAS.ps1 -Silent" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  # Silent mode with SCAP scan"
+    Write-Host "  .\MOAS.ps1 -Silent -RunSCAPParam -ScapPathParam 'C:\SCAP\cscc.exe'" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  # Silent mode with SFC verify and 30 days of logs"
+    Write-Host "  .\MOAS.ps1 -Silent -RunSFCParam 2 -LogDaysParam 30" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "OUTPUT:" -ForegroundColor Yellow
+    Write-Host "  Creates a dated folder in the script directory containing:"
+    Write-Host "    - BasicInfo-*.csv        System/hardware information"
+    Write-Host "    - LocalUsers-*.csv       Local user accounts"
+    Write-Host "    - UpdateandHotfixes-*.csv Installed updates"
+    Write-Host "    - InstalledSoftware-*.csv Installed applications"
+    Write-Host "    - PPS-*.csv              Network ports and processes"
+    Write-Host "    - Logs-*.csv             Event log entries"
+    Write-Host "    - SFC-*.txt              SFC scan results (if run)"
+    Write-Host "    - SCAP\                  SCAP results folder (if run)"
+    Write-Host ""
+    Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
+    Write-Host "  - PowerShell 2.0 or later"
+    Write-Host "  - Administrator privileges recommended for full functionality"
+    Write-Host "  - Without admin: Security logs and SFC scans are skipped"
+    Write-Host ""
+    Write-Host "SUPPORTED SYSTEMS:" -ForegroundColor Yellow
+    Write-Host "  Windows 7, 8, 10, 11"
+    Write-Host "  Windows Server 2012, 2016, 2019, 2022"
+    Write-Host ""
+    exit
+}
 #endregion
 
 #region Administrator Check
