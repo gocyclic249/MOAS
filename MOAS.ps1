@@ -18,6 +18,7 @@ V.96 Added GUI for SCAP/SFC/Log options with file picker for SCAP executable
 V.97 Fixed PS 2.0 compatibility and permissions handling for files vs directories
 V.98 Added additional ICS/SCADA protocol port detection
 V.99 Added admin check, enhanced disk/network info, progress indicator, silent mode, summary report
+V1.00 Enhanced non-admin mode: detailed skip/collect list, graceful degradation for SFC, GUI shows SFC as disabled when not admin
 Known Working Systems:
 Windows 7 Powershell 2.0
 Windows 10 Powershell 5.0
@@ -45,22 +46,37 @@ if (-not $isAdmin) {
     Write-Host "  WARNING: Script is NOT running as Administrator" -ForegroundColor Yellow
     Write-Host "========================================================" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "  The following features require Administrator privileges:" -ForegroundColor Yellow
-    Write-Host "    - Security Event Log collection" -ForegroundColor Yellow
-    Write-Host "    - SFC (System File Checker) scans" -ForegroundColor Yellow
-    Write-Host "    - Some system information queries" -ForegroundColor Yellow
+    Write-Host "  WILL BE SKIPPED (Requires Administrator):" -ForegroundColor Red
+    Write-Host "    [X] Security Event Log collection" -ForegroundColor Red
+    Write-Host "    [X] SFC (System File Checker) scans" -ForegroundColor Red
     Write-Host ""
-    Write-Host "  To run as Administrator:" -ForegroundColor Cyan
+    Write-Host "  WILL STILL COLLECT (No Admin Required):" -ForegroundColor Green
+    Write-Host "    [+] Basic System Information (Computer, BIOS, CPU, RAM)" -ForegroundColor Green
+    Write-Host "    [+] Disk Information (All drives with free space)" -ForegroundColor Green
+    Write-Host "    [+] Network Adapter Information (IP, MAC, Gateway, DNS)" -ForegroundColor Green
+    Write-Host "    [+] Local User Accounts" -ForegroundColor Green
+    Write-Host "    [+] Installed Updates and Hotfixes" -ForegroundColor Green
+    Write-Host "    [+] Installed Software (Win32_Product)" -ForegroundColor Green
+    Write-Host "    [+] Active Network Connections (TCP/UDP ports)" -ForegroundColor Green
+    Write-Host "    [+] Application, System, and PowerShell Event Logs" -ForegroundColor Green
+    Write-Host "    [+] Software License Information" -ForegroundColor Green
+    Write-Host "    [+] SCAP Scan (if selected and tool permits)" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  To run with full capabilities:" -ForegroundColor Cyan
     Write-Host "    Right-click PowerShell -> 'Run as Administrator'" -ForegroundColor Cyan
     Write-Host "    Then run this script again" -ForegroundColor Cyan
     Write-Host ""
 
     if (-not $Silent) {
-        $continue = Read-Host "Continue anyway? (Y/N)"
+        $continue = Read-Host "Continue with limited scan? (Y/N)"
         if ($continue -ne "Y" -and $continue -ne "y") {
             Write-Host "Exiting..." -ForegroundColor Red
             exit
         }
+        Write-Host ""
+        Write-Host "  Continuing with limited scan..." -ForegroundColor Yellow
+    } else {
+        Write-Host "  Silent mode: Continuing with limited scan..." -ForegroundColor Yellow
     }
     Write-Host ""
 }
@@ -73,7 +89,8 @@ if (-not $isAdmin) {
 #region GUI Configuration Form
 function Show-MOASConfigForm {
     param(
-        [string]$DefaultScapPath = ""
+        [string]$DefaultScapPath = "",
+        [bool]$IsAdministrator = $false
     )
 
     # Create the main form
@@ -169,10 +186,20 @@ function Show-MOASConfigForm {
 
     # SFC Description Label
     $lblSfcDesc = New-Object System.Windows.Forms.Label
-    $lblSfcDesc.Text = "Note: SFC scans can take a long time (especially at 22%)"
     $lblSfcDesc.Location = New-Object System.Drawing.Point(15, 50)
     $lblSfcDesc.Size = New-Object System.Drawing.Size(430, 20)
-    $lblSfcDesc.ForeColor = [System.Drawing.Color]::Gray
+
+    # Disable SFC options if not running as Administrator
+    if (-not $IsAdministrator) {
+        $rbSfcNone.Enabled = $false
+        $rbSfcScannow.Enabled = $false
+        $rbSfcVerify.Enabled = $false
+        $lblSfcDesc.Text = "SFC requires Administrator privileges (not available)"
+        $lblSfcDesc.ForeColor = [System.Drawing.Color]::Red
+    } else {
+        $lblSfcDesc.Text = "Note: SFC scans can take a long time (especially at 22%)"
+        $lblSfcDesc.ForeColor = [System.Drawing.Color]::Gray
+    }
     $sfcGroup.Controls.Add($lblSfcDesc)
 
     # Log Collection GroupBox
@@ -316,7 +343,7 @@ if ($Silent) {
 } else {
     # Show GUI Configuration Dialog
     Write-Host -ForegroundColor Green "Opening Configuration Dialog..."
-    $Config = Show-MOASConfigForm -DefaultScapPath $DefaultScapPath
+    $Config = Show-MOASConfigForm -DefaultScapPath $DefaultScapPath -IsAdministrator $isAdmin
 
     # Check if user cancelled
     if ($Config.DialogResult -ne [System.Windows.Forms.DialogResult]::OK) {
@@ -782,17 +809,27 @@ If ($RunSCAP -eq "1"){
 }
 
 If ($RunSFC -eq "1"){
-    Write-Host -ForegroundColor Green "Running SFC: Time for Coffee and maybe a nap. Note: SFC tends to take a long time at 22%"
-    Start-Process -FilePath "${env:Windir}\System32\SFC.EXE" -ArgumentList '/scannow' -Wait -NoNewWindow
-    Get-Content "C:\Windows\Logs\CBS\CBS.log" -ErrorAction SilentlyContinue | Out-String | Out-File -FilePath $TXTSfc
-    $script:CollectedItems += "SFC Scan (SCANNOW)"
+    if ($isAdmin) {
+        Write-Host -ForegroundColor Green "Running SFC: Time for Coffee and maybe a nap. Note: SFC tends to take a long time at 22%"
+        Start-Process -FilePath "${env:Windir}\System32\SFC.EXE" -ArgumentList '/scannow' -Wait -NoNewWindow
+        Get-Content "C:\Windows\Logs\CBS\CBS.log" -ErrorAction SilentlyContinue | Out-String | Out-File -FilePath $TXTSfc
+        $script:CollectedItems += "SFC Scan (SCANNOW)"
+    } else {
+        Write-Host -ForegroundColor Yellow "Skipping SFC SCANNOW - requires Administrator privileges"
+        $script:Warnings += "SFC SCANNOW skipped (requires Administrator)"
+    }
 }
 
 If ($RunSFC -eq "2"){
-    Write-Host -ForegroundColor Green "Running SFC: Time for Coffee and maybe a nap. Note: SFC tends to take a long time at 22%"
-    Start-Process -FilePath "${env:Windir}\System32\SFC.EXE" -ArgumentList '/verifyonly' -Wait -NoNewWindow
-    Get-Content "C:\Windows\Logs\CBS\CBS.log" -ErrorAction SilentlyContinue | Out-String | Out-File -FilePath $TXTSfc
-    $script:CollectedItems += "SFC Scan (VERIFYONLY)"
+    if ($isAdmin) {
+        Write-Host -ForegroundColor Green "Running SFC: Time for Coffee and maybe a nap. Note: SFC tends to take a long time at 22%"
+        Start-Process -FilePath "${env:Windir}\System32\SFC.EXE" -ArgumentList '/verifyonly' -Wait -NoNewWindow
+        Get-Content "C:\Windows\Logs\CBS\CBS.log" -ErrorAction SilentlyContinue | Out-String | Out-File -FilePath $TXTSfc
+        $script:CollectedItems += "SFC Scan (VERIFYONLY)"
+    } else {
+        Write-Host -ForegroundColor Yellow "Skipping SFC VERIFYONLY - requires Administrator privileges"
+        $script:Warnings += "SFC VERIFYONLY skipped (requires Administrator)"
+    }
 }
 
 Write-Host -ForegroundColor Green "Fixing Permissions"
