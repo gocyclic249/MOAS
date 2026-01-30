@@ -16,6 +16,7 @@ V.92 Changing output to multiple CSV Adding Differing SFC and Removing Component
 V.95 Hardware is output into Basic Information and Installed Software is added to its own csv
 V.96 Added GUI for SCAP/SFC/Log options with file picker for SCAP executable
 V.97 Fixed PS 2.0 compatibility and permissions handling for files vs directories
+V.98 Added additional ICS/SCADA protocol port detection
 Known Working Systems:
 Windows 7 Powershell 2.0
 Windows 10 Powershell 5.0
@@ -502,6 +503,55 @@ if( $P.RemotePort -eq "63088") {$P.FRCS_Protocols = "SNC GENe"}
 if( $P.RemotePort -eq "63094") {$P.FRCS_Protocols = "SNC GENe"}
 if( $P.RemotePort -eq "65443") {$P.FRCS_Protocols = "SNC GENe"}
 
+# Additional ICS/SCADA Protocols
+if( $P.RemotePort -eq "789") {$P.FRCS_Protocols = "Red Lion Crimson v3"}
+if( $P.RemotePort -eq "1911") {$P.FRCS_Protocols = "Niagara Fox (Tridium)"}
+if( $P.RemotePort -eq "1962") {$P.FRCS_Protocols = "PCWorx"}
+if( $P.RemotePort -eq "2222") {$P.FRCS_Protocols = "EtherNet/IP"}
+if( $P.RemotePort -eq "2404") {$P.FRCS_Protocols = "IEC 60870-5-104"}
+if( $P.RemotePort -eq "2455") {$P.FRCS_Protocols = "WAGO I/O (PCWorx)"}
+if( $P.RemotePort -eq "4712") {$P.FRCS_Protocols = "Siemens WinCC OA"}
+if( $P.RemotePort -eq "4713") {$P.FRCS_Protocols = "Siemens WinCC OA"}
+if( $P.RemotePort -eq "4911") {$P.FRCS_Protocols = "Niagara Fox SSL (Tridium)"}
+if( $P.RemotePort -eq "5006") {$P.FRCS_Protocols = "Mitsubishi MELSEC-Q"}
+if( $P.RemotePort -eq "5007") {$P.FRCS_Protocols = "Mitsubishi MELSEC-Q"}
+if( $P.RemotePort -eq "5094") {$P.FRCS_Protocols = "HART-IP"}
+if( $P.RemotePort -eq "5095") {$P.FRCS_Protocols = "HART-IP"}
+if( $P.RemotePort -eq "9600") {$P.FRCS_Protocols = "OMRON FINS"}
+if( $P.RemotePort -eq "18245") {$P.FRCS_Protocols = "GE SRTP"}
+if( $P.RemotePort -eq "18246") {$P.FRCS_Protocols = "GE SRTP"}
+if( $P.RemotePort -eq "19999") {$P.FRCS_Protocols = "DNP3"}
+if( $P.RemotePort -eq "20256") {$P.FRCS_Protocols = "Unitronics PCOM"}
+if( $P.RemotePort -eq "20547") {$P.FRCS_Protocols = "ProConOS (PCWorx)"}
+if( $P.RemotePort -eq "41100") {$P.FRCS_Protocols = "Yokogawa CENTUM"}
+if( $P.RemotePort -eq "44818") {$P.FRCS_Protocols = "EtherNet/IP CIP"}
+if( $P.RemotePort -eq "48898") {$P.FRCS_Protocols = "Niagara Fox Secure"}
+if( $P.RemotePort -eq "57176") {$P.FRCS_Protocols = "CODESYS Runtime"}
+
+# Siemens S7 uses COTP/ISO-TSAP on port 102 (same as ICCP)
+if( $P.RemotePort -eq "102") {$P.FRCS_Protocols = "ICCP/Siemens S7 COTP"}
+
+# Honeywell Experion
+if( $P.RemotePort -eq "51000") {$P.FRCS_Protocols = "Honeywell Experion PKS"}
+if( $P.RemotePort -eq "51001") {$P.FRCS_Protocols = "Honeywell Experion PKS"}
+if( $P.RemotePort -eq "51002") {$P.FRCS_Protocols = "Honeywell Experion PKS"}
+
+# Schneider Electric
+if( $P.RemotePort -eq "1541") {$P.FRCS_Protocols = "Foxboro/Schneider DCS"}
+if( $P.RemotePort -eq "6000") {$P.FRCS_Protocols = "Schneider ClearSCADA"}
+if( $P.RemotePort -eq "6543") {$P.FRCS_Protocols = "Schneider Modicon"}
+
+# Rockwell/Allen-Bradley
+if( $P.RemotePort -eq "2221") {$P.FRCS_Protocols = "Rockwell Allen-Bradley DF1"}
+if( $P.RemotePort -eq "2223") {$P.FRCS_Protocols = "Rockwell Allen-Bradley EtherNet/IP"}
+if( $P.RemotePort -eq "17185") {$P.FRCS_Protocols = "Rockwell RSLinx"}
+
+# OPC Classic (DCOM)
+if( $P.RemotePort -eq "135") {$P.FRCS_Protocols = "OPC Classic (DCOM RPC)"}
+
+# IEC 61850
+if( $P.RemotePort -eq "102") {$P.FRCS_Protocols = "IEC 61850 MMS/ICCP/S7"}
+
 if( $P.RemotePort -ge "56001" -AND $P.RemotePort -le "56099" ) {$P.FRCS_Protocols = "Telvent OASyS DNA"}
 if( $P.RemotePort -ge "63027" -AND $P.RemotePort -le "63036" ) {$P.FRCS_Protocols = "SNC GENe"}
     }
@@ -551,6 +601,24 @@ foreach ($P in $UDPPorts) {
         if( $P.RemotePort -eq "55001") {$P.FRCS_Protocols = "FL-net Reception"}
         if( $P.RemotePort -eq "55002") {$P.FRCS_Protocols = "FL-net Reception"}
         if( $P.RemotePort -eq "55003") {$P.FRCS_Protocols = "FL-net Transmission"}
+
+        # Additional ICS/SCADA UDP Protocols
+        if( $P.RemotePort -eq "69") {$P.FRCS_Protocols = "TFTP (ICS Firmware)"}
+        if( $P.RemotePort -eq "161") {$P.FRCS_Protocols = "SNMP"}
+        if( $P.RemotePort -eq "162") {$P.FRCS_Protocols = "SNMP Trap"}
+        if( $P.RemotePort -eq "1911") {$P.FRCS_Protocols = "Niagara Fox (Tridium)"}
+        if( $P.RemotePort -eq "4000") {$P.FRCS_Protocols = "Emerson/Fisher ROC Plus"}
+        if( $P.RemotePort -eq "4911") {$P.FRCS_Protocols = "Niagara Fox SSL (Tridium)"}
+        if( $P.RemotePort -eq "5094") {$P.FRCS_Protocols = "HART-IP"}
+        if( $P.RemotePort -eq "5095") {$P.FRCS_Protocols = "HART-IP"}
+        if( $P.RemotePort -eq "9600") {$P.FRCS_Protocols = "OMRON FINS"}
+        if( $P.RemotePort -eq "18245") {$P.FRCS_Protocols = "GE SRTP"}
+        if( $P.RemotePort -eq "18246") {$P.FRCS_Protocols = "GE SRTP"}
+        if( $P.RemotePort -eq "19999") {$P.FRCS_Protocols = "DNP3"}
+        if( $P.RemotePort -eq "41794") {$P.FRCS_Protocols = "Crestron (Building Automation)"}
+        if( $P.RemotePort -eq "47809") {$P.FRCS_Protocols = "BACnet/IP Secure"}
+        if( $P.RemotePort -eq "48898") {$P.FRCS_Protocols = "Niagara Fox Secure"}
+        if( $P.RemotePort -eq "57176") {$P.FRCS_Protocols = "CODESYS Runtime"}
 
             }
 
