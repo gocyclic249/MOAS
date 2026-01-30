@@ -500,15 +500,21 @@ $softwareJob = Start-Job -ScriptBlock {
     Get-WmiObject -Query "SELECT * FROM Win32_Product" | Select-Object Name, Vendor, Version
 }
 
-# Show progress while waiting
-$spinChars = @('|', '/', '-', '\')
-$spinIndex = 0
+# Show progress while waiting (PS 2.0 compatible - dots instead of spinner)
+Write-Host -NoNewline "  Processing"
+$dotCount = 0
 while ($softwareJob.State -eq 'Running') {
-    Write-Host -NoNewline "`r  Processing $($spinChars[$spinIndex]) "
-    $spinIndex = ($spinIndex + 1) % 4
-    Start-Sleep -Milliseconds 250
+    Write-Host -NoNewline "."
+    $dotCount++
+    if ($dotCount -ge 60) {
+        # Start a new line after 60 dots to prevent very long lines
+        Write-Host ""
+        Write-Host -NoNewline "  Processing"
+        $dotCount = 0
+    }
+    Start-Sleep -Milliseconds 500
 }
-Write-Host "`r  Processing complete.    "
+Write-Host " Done!"
 
 $InstalledSoftware = Receive-Job -Job $softwareJob
 Remove-Job -Job $softwareJob
