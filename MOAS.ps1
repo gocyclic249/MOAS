@@ -14,17 +14,206 @@ V.85 Added License Info for Windows and Office
 V.90 Completely re-wrote script to allow it to run on Windows 7 with Powershell 2.0. Output for everything except SCAP is in one txt file.
 V.92 Changing output to multiple CSV Adding Differing SFC and Removing Components and Programs
 V.95 Hardware is output into Basic Information and Installed Software is added to its own csv
+V.96 Added GUI for SCAP/SFC/Log options with file picker for SCAP executable
 Known Working Systems:
 Windows 7 Powershell 2.0
 Windows 10 Powershell 5.0
+Windows 11 Powershell 5.1
+Windows Server 2012-2022
 #>
 
 
+# Load Windows Forms Assembly (compatible with PowerShell 2.0+)
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+[void][System.Reflection.Assembly]::LoadWithPartialName("System.Drawing")
 
-<#Notes:
-To change where this script looks for SCAP change $ScapLocation It is currently around line 79ish by default it looks in $ScriptDir recursivly.
-#>
+#region GUI Configuration Form
+function Show-MOASConfigForm {
+    param(
+        [string]$DefaultScapPath = ""
+    )
 
+    # Create the main form
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "MOAS System Inventory Configuration"
+    $form.Size = New-Object System.Drawing.Size(500, 380)
+    $form.StartPosition = "CenterScreen"
+    $form.FormBorderStyle = "FixedDialog"
+    $form.MaximizeBox = $false
+    $form.MinimizeBox = $false
+    $form.TopMost = $true
+
+    # SCAP GroupBox
+    $scapGroup = New-Object System.Windows.Forms.GroupBox
+    $scapGroup.Text = "SCAP Configuration"
+    $scapGroup.Location = New-Object System.Drawing.Point(10, 10)
+    $scapGroup.Size = New-Object System.Drawing.Size(460, 100)
+    $form.Controls.Add($scapGroup)
+
+    # SCAP Checkbox
+    $chkScap = New-Object System.Windows.Forms.CheckBox
+    $chkScap.Text = "Run SCAP Scan"
+    $chkScap.Location = New-Object System.Drawing.Point(15, 25)
+    $chkScap.Size = New-Object System.Drawing.Size(150, 20)
+    $scapGroup.Controls.Add($chkScap)
+
+    # SCAP Path Label
+    $lblScapPath = New-Object System.Windows.Forms.Label
+    $lblScapPath.Text = "SCAP Executable (cscc.exe):"
+    $lblScapPath.Location = New-Object System.Drawing.Point(15, 50)
+    $lblScapPath.Size = New-Object System.Drawing.Size(200, 20)
+    $scapGroup.Controls.Add($lblScapPath)
+
+    # SCAP Path TextBox
+    $txtScapPath = New-Object System.Windows.Forms.TextBox
+    $txtScapPath.Location = New-Object System.Drawing.Point(15, 70)
+    $txtScapPath.Size = New-Object System.Drawing.Size(340, 20)
+    $txtScapPath.Text = $DefaultScapPath
+    $txtScapPath.Enabled = $false
+    $scapGroup.Controls.Add($txtScapPath)
+
+    # SCAP Browse Button
+    $btnBrowse = New-Object System.Windows.Forms.Button
+    $btnBrowse.Text = "Browse..."
+    $btnBrowse.Location = New-Object System.Drawing.Point(360, 68)
+    $btnBrowse.Size = New-Object System.Drawing.Size(85, 25)
+    $btnBrowse.Enabled = $false
+    $scapGroup.Controls.Add($btnBrowse)
+
+    # Enable/disable SCAP path controls based on checkbox
+    $chkScap.Add_CheckedChanged({
+        $txtScapPath.Enabled = $chkScap.Checked
+        $btnBrowse.Enabled = $chkScap.Checked
+    })
+
+    # Browse button click handler
+    $btnBrowse.Add_Click({
+        $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
+        $openFileDialog.Title = "Select SCAP Executable (cscc.exe)"
+        $openFileDialog.Filter = "SCAP Executable (cscc.exe)|cscc.exe|All Executables (*.exe)|*.exe"
+        $openFileDialog.InitialDirectory = [Environment]::GetFolderPath("Desktop")
+        if ($openFileDialog.ShowDialog() -eq "OK") {
+            $txtScapPath.Text = $openFileDialog.FileName
+        }
+    })
+
+    # SFC GroupBox
+    $sfcGroup = New-Object System.Windows.Forms.GroupBox
+    $sfcGroup.Text = "System File Checker (SFC)"
+    $sfcGroup.Location = New-Object System.Drawing.Point(10, 115)
+    $sfcGroup.Size = New-Object System.Drawing.Size(460, 80)
+    $form.Controls.Add($sfcGroup)
+
+    # SFC Radio Buttons
+    $rbSfcNone = New-Object System.Windows.Forms.RadioButton
+    $rbSfcNone.Text = "Do not run SFC"
+    $rbSfcNone.Location = New-Object System.Drawing.Point(15, 25)
+    $rbSfcNone.Size = New-Object System.Drawing.Size(130, 20)
+    $rbSfcNone.Checked = $true
+    $sfcGroup.Controls.Add($rbSfcNone)
+
+    $rbSfcScannow = New-Object System.Windows.Forms.RadioButton
+    $rbSfcScannow.Text = "SFC /SCANNOW"
+    $rbSfcScannow.Location = New-Object System.Drawing.Point(150, 25)
+    $rbSfcScannow.Size = New-Object System.Drawing.Size(130, 20)
+    $sfcGroup.Controls.Add($rbSfcScannow)
+
+    $rbSfcVerify = New-Object System.Windows.Forms.RadioButton
+    $rbSfcVerify.Text = "SFC /VERIFYONLY"
+    $rbSfcVerify.Location = New-Object System.Drawing.Point(290, 25)
+    $rbSfcVerify.Size = New-Object System.Drawing.Size(140, 20)
+    $sfcGroup.Controls.Add($rbSfcVerify)
+
+    # SFC Description Label
+    $lblSfcDesc = New-Object System.Windows.Forms.Label
+    $lblSfcDesc.Text = "Note: SFC scans can take a long time (especially at 22%)"
+    $lblSfcDesc.Location = New-Object System.Drawing.Point(15, 50)
+    $lblSfcDesc.Size = New-Object System.Drawing.Size(430, 20)
+    $lblSfcDesc.ForeColor = [System.Drawing.Color]::Gray
+    $sfcGroup.Controls.Add($lblSfcDesc)
+
+    # Log Collection GroupBox
+    $logGroup = New-Object System.Windows.Forms.GroupBox
+    $logGroup.Text = "Event Log Collection"
+    $logGroup.Location = New-Object System.Drawing.Point(10, 200)
+    $logGroup.Size = New-Object System.Drawing.Size(460, 80)
+    $form.Controls.Add($logGroup)
+
+    # Log Days Label
+    $lblLogDays = New-Object System.Windows.Forms.Label
+    $lblLogDays.Text = "Collect logs from the past (days):"
+    $lblLogDays.Location = New-Object System.Drawing.Point(15, 30)
+    $lblLogDays.Size = New-Object System.Drawing.Size(200, 20)
+    $logGroup.Controls.Add($lblLogDays)
+
+    # Log Days NumericUpDown (using TextBox for PS 2.0 compatibility)
+    $txtLogDays = New-Object System.Windows.Forms.TextBox
+    $txtLogDays.Location = New-Object System.Drawing.Point(220, 28)
+    $txtLogDays.Size = New-Object System.Drawing.Size(60, 20)
+    $txtLogDays.Text = "90"
+    $txtLogDays.TextAlign = "Right"
+    $logGroup.Controls.Add($txtLogDays)
+
+    # Validate numeric input
+    $txtLogDays.Add_KeyPress({
+        param($sender, $e)
+        if (-not [char]::IsDigit($e.KeyChar) -and $e.KeyChar -ne [char]8) {
+            $e.Handled = $true
+        }
+    })
+
+    # Log Days Description
+    $lblLogDesc = New-Object System.Windows.Forms.Label
+    $lblLogDesc.Text = "Events: Logon (4624), Audit Policy (4704), Lockout (4740), Log Clear (1102), etc."
+    $lblLogDesc.Location = New-Object System.Drawing.Point(15, 55)
+    $lblLogDesc.Size = New-Object System.Drawing.Size(430, 20)
+    $lblLogDesc.ForeColor = [System.Drawing.Color]::Gray
+    $logGroup.Controls.Add($lblLogDesc)
+
+    # OK Button
+    $btnOK = New-Object System.Windows.Forms.Button
+    $btnOK.Text = "Start Scan"
+    $btnOK.Location = New-Object System.Drawing.Point(290, 295)
+    $btnOK.Size = New-Object System.Drawing.Size(85, 30)
+    $btnOK.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $form.AcceptButton = $btnOK
+    $form.Controls.Add($btnOK)
+
+    # Cancel Button
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = "Cancel"
+    $btnCancel.Location = New-Object System.Drawing.Point(385, 295)
+    $btnCancel.Size = New-Object System.Drawing.Size(85, 30)
+    $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $form.CancelButton = $btnCancel
+    $form.Controls.Add($btnCancel)
+
+    # Show the form
+    $result = $form.ShowDialog()
+
+    # Determine SFC selection
+    $sfcChoice = "3"  # Default: No
+    if ($rbSfcScannow.Checked) { $sfcChoice = "1" }
+    elseif ($rbSfcVerify.Checked) { $sfcChoice = "2" }
+
+    # Validate log days
+    $logDays = 90
+    if ($txtLogDays.Text -match '^\d+$') {
+        $logDays = [int]$txtLogDays.Text
+        if ($logDays -lt 1) { $logDays = 1 }
+        if ($logDays -gt 365) { $logDays = 365 }
+    }
+
+    # Return configuration as hashtable
+    return @{
+        DialogResult = $result
+        RunSCAP = if ($chkScap.Checked) { "1" } else { "2" }
+        ScapPath = $txtScapPath.Text
+        RunSFC = $sfcChoice
+        LogDays = $logDays
+    }
+}
+#endregion
 
 Write-Host -ForegroundColor Green "Initalizing Variables"
 $osInfo = Get-WmiObject -Class Win32_OperatingSystem | Select-Object Caption, BuildNumber, Manufacturer
@@ -41,7 +230,6 @@ $RAM = Get-WmiObject -Class Win32_PhysicalMemory | Measure-Object -Property capa
 $Storage = Get-WmiObject -Class Win32_LogicalDisk -Filter "DeviceID='$env:systemdrive'" | ForEach-Object { [math]::Round($_.Size / 1GB,2) }
 $ScriptDir= Split-Path -Parent -Path $MyInvocation.MyCommand.Path
 $now = Get-Date -Format 'yyyyMMdd-HHmm'
-$MOASPrompt = "MOAS#>"
 
 Write-Host -ForegroundColor Green "Creating the Save Folder"
 #Creat the Save Directory for this scan
@@ -57,25 +245,32 @@ $CSVPPS = "$ScanSaveDir\$env:COMPUTERNAME-PPS-$now.csv"
 $CSVLogs = "$ScanSaveDir\$env:COMPUTERNAME-Logs-$now.csv"
 $TXTSfc = "$ScanSaveDir\$env:COMPUTERNAME-SFC-$now.txt"
 $CSVInstalledSoftware = "$ScanSaveDir\$env:COMPUTERNAME-InstalledSoftware-$now.csv"
-#Add location of SCAP here. This assumes scap has been extracted to the Script Root\scc_#.#
-$ScapLocation = Get-ChildItem $ScriptDir -Filter cscc.exe -Recurse -ErrorAction SilentlyContinue| % { $_.FullName }
 
-Write-Host -ForegroundColor Red "Would you Like to Run SCAP?"
-Write-Host -ForegroundColor Red "1. Yes"
-Write-Host -ForegroundColor Red "2. No"
-$RunSCAP = Read-Host -Prompt $MOASPrompt
-if ($RunSCAP -ne "1" -and $RunSCAP -ne "2"){
-    Read-Host -Prompt "Please Enter 1 or 2"
+# Try to find SCAP in script directory as default
+$DefaultScapPath = Get-ChildItem $ScriptDir -Filter cscc.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { $_.FullName }
+if (-not $DefaultScapPath) { $DefaultScapPath = "" }
+
+# Show GUI Configuration Dialog
+Write-Host -ForegroundColor Green "Opening Configuration Dialog..."
+$Config = Show-MOASConfigForm -DefaultScapPath $DefaultScapPath
+
+# Check if user cancelled
+if ($Config.DialogResult -ne [System.Windows.Forms.DialogResult]::OK) {
+    Write-Host -ForegroundColor Yellow "Operation cancelled by user."
+    exit
 }
 
-Write-Host -ForegroundColor Red "Would you Like to Run SFC?"
-Write-Host -ForegroundColor Red "1. SCANNOW"
-Write-Host -ForegroundColor Red "2. VERIFYONLY"
-Write-Host -ForegroundColor Red "3. No"
-$RunSFC = Read-Host -Prompt $MOASPrompt
-if ($RunSFC -ne "1" -and $RunSFC -ne "2"-and $RunSFC -ne "3"){
-    Read-Host -Prompt "Please Enter 1,2 or 3"
-}
+# Set variables from GUI
+$RunSCAP = $Config.RunSCAP
+$ScapLocation = $Config.ScapPath
+$RunSFC = $Config.RunSFC
+$LogDays = $Config.LogDays
+
+Write-Host -ForegroundColor Green "Configuration:"
+Write-Host "  Run SCAP: $(if ($RunSCAP -eq '1') { 'Yes' } else { 'No' })"
+if ($RunSCAP -eq "1") { Write-Host "  SCAP Path: $ScapLocation" }
+Write-Host "  Run SFC: $(switch ($RunSFC) { '1' { 'SCANNOW' } '2' { 'VERIFYONLY' } default { 'No' } })"
+Write-Host "  Log Days: $LogDays"
 
 Write-Host -ForegroundColor Green "Writing Basic Information"
 #Add the basic information
@@ -353,23 +548,29 @@ $Ports += $UDPPorts
 
 $ShowPorts = $Ports | Select-Object LocalAddress,RemoteAddress,Proto,LocalPort,RemotePort,PID,ProcessName,FRCS_Protocols | Export-Csv -Path $CSVPPS -NoTypeInformation
 
-Write-Host -ForegroundColor Green "Pulling Log Files: This takes quite a bit"
+Write-Host -ForegroundColor Green "Pulling Log Files: This takes quite a bit (collecting $LogDays days of logs)"
 #Add Log Files
-#Add Days should be -90 but shorten for testing
 if ((New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $EventID = '4624','4704','4740','1102','4946','6412','4672' #What Events We Care About
     $Logs = 'Application','Security','System','Windows PowerShell' #Logs to Search
-    $Date = (Get-Date).AddDays(0)
+    $Date = (Get-Date).AddDays(-$LogDays)
     $AllLogResults = Get-WinEvent -WarningAction SilentlyContinue -FilterHashtable @{LogName=$Logs; StartTime=$Date; Level=1,2,3,4,0; ID=$EventID}
     $AllLogResults | Export-Csv -Path $CSVLogs -NoTypeInformation
+    } else {
+    Write-Host -ForegroundColor Yellow "Warning: Not running as Administrator - skipping Security log collection"
     }
 
 If ($RunSCAP -eq "1"){
-    Write-Host -ForegroundColor Green "Running SCAP: Get some coffee"
-    $ScapSaveLocation = "$ScanSaveDir\SCAP"
-    $null = New-Item -ItemType Directory -Force -Path $ScapSaveLocation
-    Start-Process -NoNewWindow  -Wait -Path $ScapLocation -ArgumentList "-u $ScapSaveLocation"
-    Write-Host -ForegroundColor Green "SCAP is Finally Done!"
+    if ($ScapLocation -and (Test-Path $ScapLocation)) {
+        Write-Host -ForegroundColor Green "Running SCAP: Get some coffee"
+        $ScapSaveLocation = "$ScanSaveDir\SCAP"
+        $null = New-Item -ItemType Directory -Force -Path $ScapSaveLocation
+        Start-Process -NoNewWindow -Wait -FilePath $ScapLocation -ArgumentList "-u $ScapSaveLocation"
+        Write-Host -ForegroundColor Green "SCAP is Finally Done!"
+    } else {
+        Write-Host -ForegroundColor Red "SCAP executable not found at: $ScapLocation"
+        Write-Host -ForegroundColor Red "Skipping SCAP scan."
+    }
 }
 
 If ($RunSFC -eq "1"){
