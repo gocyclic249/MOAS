@@ -15,6 +15,7 @@ V.90 Completely re-wrote script to allow it to run on Windows 7 with Powershell 
 V.92 Changing output to multiple CSV Adding Differing SFC and Removing Components and Programs
 V.95 Hardware is output into Basic Information and Installed Software is added to its own csv
 V.96 Added GUI for SCAP/SFC/Log options with file picker for SCAP executable
+V.97 Fixed PS 2.0 compatibility and permissions handling for files vs directories
 Known Working Systems:
 Windows 7 Powershell 2.0
 Windows 10 Powershell 5.0
@@ -204,14 +205,18 @@ function Show-MOASConfigForm {
         if ($logDays -gt 365) { $logDays = 365 }
     }
 
-    # Return configuration as hashtable
-    return @{
+    # Return configuration as hashtable (PS 2.0 compatible)
+    $runScapValue = "2"
+    if ($chkScap.Checked) { $runScapValue = "1" }
+
+    $configResult = @{
         DialogResult = $result
-        RunSCAP = if ($chkScap.Checked) { "1" } else { "2" }
+        RunSCAP = $runScapValue
         ScapPath = $txtScapPath.Text
         RunSFC = $sfcChoice
         LogDays = $logDays
     }
+    return $configResult
 }
 #endregion
 
@@ -236,7 +241,6 @@ Write-Host -ForegroundColor Green "Creating the Save Folder"
 $ShortDate = Get-Date -Format "yyyyMMdd"
 $ScanSaveDir = "$ScriptDir\$ShortDate-$env:COMPUTERNAME"
 $null = New-Item -ItemType Directory -Force -Path $ScanSaveDir
-$scriptLocation = $PSScriptRoot
 # This is the output file
 $CSVBasicInfo = "$ScanSaveDir\$env:COMPUTERNAME-BasicInfo-$now.csv"
 $CSVUpdatesandHotfixes = "$ScanSaveDir\$env:COMPUTERNAME-UpdateandHotfixes-$now.csv"
@@ -266,10 +270,16 @@ $ScapLocation = $Config.ScapPath
 $RunSFC = $Config.RunSFC
 $LogDays = $Config.LogDays
 
+# Display configuration (PS 2.0 compatible)
 Write-Host -ForegroundColor Green "Configuration:"
-Write-Host "  Run SCAP: $(if ($RunSCAP -eq '1') { 'Yes' } else { 'No' })"
+$scapDisplay = "No"
+if ($RunSCAP -eq "1") { $scapDisplay = "Yes" }
+Write-Host "  Run SCAP: $scapDisplay"
 if ($RunSCAP -eq "1") { Write-Host "  SCAP Path: $ScapLocation" }
-Write-Host "  Run SFC: $(switch ($RunSFC) { '1' { 'SCANNOW' } '2' { 'VERIFYONLY' } default { 'No' } })"
+$sfcDisplay = "No"
+if ($RunSFC -eq "1") { $sfcDisplay = "SCANNOW" }
+if ($RunSFC -eq "2") { $sfcDisplay = "VERIFYONLY" }
+Write-Host "  Run SFC: $sfcDisplay"
 Write-Host "  Log Days: $LogDays"
 
 Write-Host -ForegroundColor Green "Writing Basic Information"
@@ -586,14 +596,40 @@ If ($RunSFC -eq "2"){
 }
 
 Write-Host -ForegroundColor Green "Fixing Permissions"
-$AllItems=Get-ChildItem -Path $ScanSaveDir -Recurse -ErrorAction SilentlyContinue
-foreach ($Item in $AllItems){
-    $Acl = Get-Acl -ErrorAction SilentlyContinue -Path $Item.FullName
-    $Acl.SetAccessRuleProtection($false,$true)
-    $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule("everyone","FullControl","Containerinherit,Objectinherit","none","Allow")
+# Fix permissions on the scan directory and all contents
+# Handle the root scan directory first
+try {
+    $Acl = Get-Acl -Path $ScanSaveDir -ErrorAction Stop
+    $Acl.SetAccessRuleProtection($false, $true)
+    $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
     $Acl.AddAccessRule($AccessRule)
-    Set-Acl $Item.FullName $Acl -ErrorAction SilentlyContinue
-    Write-Host $Item
+    Set-Acl -Path $ScanSaveDir -AclObject $Acl -ErrorAction Stop
+    Write-Host "  $ScanSaveDir"
+} catch {
+    Write-Host -ForegroundColor Yellow "  Warning: Could not set permissions on $ScanSaveDir"
+}
+
+# Process all items in the directory
+$AllItems = Get-ChildItem -Path $ScanSaveDir -Recurse -ErrorAction SilentlyContinue
+foreach ($Item in $AllItems) {
+    try {
+        $Acl = Get-Acl -Path $Item.FullName -ErrorAction Stop
+        $Acl.SetAccessRuleProtection($false, $true)
+
+        if ($Item.PSIsContainer) {
+            # Directory: use inheritance flags
+            $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        } else {
+            # File: no inheritance flags needed
+            $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "FullControl", "None", "None", "Allow")
+        }
+
+        $Acl.AddAccessRule($AccessRule)
+        Set-Acl -Path $Item.FullName -AclObject $Acl -ErrorAction Stop
+        Write-Host "  $($Item.FullName)"
+    } catch {
+        Write-Host -ForegroundColor Yellow "  Warning: Could not set permissions on $($Item.FullName)"
+    }
 }
 
 Write-Host -ForegroundColor Green "Script Complete"
