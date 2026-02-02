@@ -43,7 +43,7 @@ param(
 if ($Help) {
     Write-Host ""
     Write-Host "========================================================" -ForegroundColor Cyan
-    Write-Host "  MOAS - System Inventory and Audit Tool v1.00" -ForegroundColor Cyan
+    Write-Host "  MOAS - System Inventory and Audit Tool v1.01" -ForegroundColor Cyan
     Write-Host "========================================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "DESCRIPTION:" -ForegroundColor Yellow
