@@ -3,7 +3,7 @@
 A PowerShell-based system inventory and audit tool for Windows environments. Originally based on FRCS-HW_SW_Inventory, extensively modified and enhanced for modern use.
 
 **Version:** 1.01
-**Author:** Daniel Barker (daniel.barker.27@spaceforce.mil)
+**Author:** Dan B
 **License:** GPL 2.0
 
 ## Features
