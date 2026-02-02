@@ -15,6 +15,11 @@ V.90 Completely re-wrote script to allow it to run on Windows 7 with Powershell 
 V.92 Changing output to multiple CSV Adding Differing SFC and Removing Components and Programs
 V.95 Hardware is output into Basic Information and Installed Software is added to its own csv
 V.96 Added GUI for SCAP/SFC/Log options with file picker for SCAP executable
+V.97 Fixed PS 2.0 compatibility and permissions handling for files vs directories
+V.98 Added additional ICS/SCADA protocol port detection
+V.99 Added admin check, enhanced disk/network info, progress indicator, silent mode, summary report
+V1.00 Enhanced non-admin mode: detailed skip/collect list, graceful degradation for SFC, GUI shows SFC as disabled when not admin
+V1.01 Added -Help command-line flag with comprehensive usage documentation
 Known Working Systems:
 Windows 7 Powershell 2.0
 Windows 10 Powershell 5.0
@@ -22,6 +27,134 @@ Windows 11 Powershell 5.1
 Windows Server 2012-2022
 #>
 
+#region Command-Line Parameters
+# Silent mode parameters: -Silent -RunSCAP -ScapPath "path" -RunSFC [1|2] -LogDays 90
+param(
+    [switch]$Help,
+    [switch]$Silent,
+    [switch]$RunSCAPParam,
+    [string]$ScapPathParam = "",
+    [string]$RunSFCParam = "3",
+    [int]$LogDaysParam = 90
+)
+#endregion
+
+#region Help Display
+if ($Help) {
+    Write-Host ""
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host "  MOAS - System Inventory and Audit Tool v1.00" -ForegroundColor Cyan
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "DESCRIPTION:" -ForegroundColor Yellow
+    Write-Host "  Collects system inventory data including hardware, software,"
+    Write-Host "  network configuration, local users, event logs, and optionally"
+    Write-Host "  runs SCAP compliance and SFC scans."
+    Write-Host ""
+    Write-Host "USAGE:" -ForegroundColor Yellow
+    Write-Host "  .\MOAS.ps1                    # Interactive GUI mode"
+    Write-Host "  .\MOAS.ps1 -Help              # Display this help message"
+    Write-Host "  .\MOAS.ps1 -Silent [options]  # Silent/batch mode"
+    Write-Host ""
+    Write-Host "PARAMETERS:" -ForegroundColor Yellow
+    Write-Host "  -Help              Display this help message and exit"
+    Write-Host ""
+    Write-Host "  -Silent            Run in silent mode (no GUI, no prompts)"
+    Write-Host ""
+    Write-Host "  -RunSCAPParam      Enable SCAP scan (use with -Silent)"
+    Write-Host ""
+    Write-Host "  -ScapPathParam     Path to SCAP executable (cscc.exe)"
+    Write-Host "                     Default: searches script directory"
+    Write-Host ""
+    Write-Host "  -RunSFCParam       SFC scan mode (use with -Silent)"
+    Write-Host "                     1 = SFC /SCANNOW"
+    Write-Host "                     2 = SFC /VERIFYONLY"
+    Write-Host "                     3 = Do not run SFC (default)"
+    Write-Host ""
+    Write-Host "  -LogDaysParam      Number of days of event logs to collect"
+    Write-Host "                     Range: 1-365, Default: 90"
+    Write-Host ""
+    Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "  # Interactive mode with GUI"
+    Write-Host "  .\MOAS.ps1" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  # Silent mode with defaults (90 days logs, no SCAP/SFC)"
+    Write-Host "  .\MOAS.ps1 -Silent" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  # Silent mode with SCAP scan"
+    Write-Host "  .\MOAS.ps1 -Silent -RunSCAPParam -ScapPathParam 'C:\SCAP\cscc.exe'" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  # Silent mode with SFC verify and 30 days of logs"
+    Write-Host "  .\MOAS.ps1 -Silent -RunSFCParam 2 -LogDaysParam 30" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "OUTPUT:" -ForegroundColor Yellow
+    Write-Host "  Creates a dated folder in the script directory containing:"
+    Write-Host "    - BasicInfo-*.csv        System/hardware information"
+    Write-Host "    - LocalUsers-*.csv       Local user accounts"
+    Write-Host "    - UpdateandHotfixes-*.csv Installed updates"
+    Write-Host "    - InstalledSoftware-*.csv Installed applications"
+    Write-Host "    - PPS-*.csv              Network ports and processes"
+    Write-Host "    - Logs-*.csv             Event log entries"
+    Write-Host "    - SFC-*.txt              SFC scan results (if run)"
+    Write-Host "    - SCAP\                  SCAP results folder (if run)"
+    Write-Host ""
+    Write-Host "REQUIREMENTS:" -ForegroundColor Yellow
+    Write-Host "  - PowerShell 2.0 or later"
+    Write-Host "  - Administrator privileges recommended for full functionality"
+    Write-Host "  - Without admin: Security logs and SFC scans are skipped"
+    Write-Host ""
+    Write-Host "SUPPORTED SYSTEMS:" -ForegroundColor Yellow
+    Write-Host "  Windows 7, 8, 10, 11"
+    Write-Host "  Windows Server 2012, 2016, 2019, 2022"
+    Write-Host ""
+    exit
+}
+#endregion
+
+#region Administrator Check
+$isAdmin = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $isAdmin) {
+    Write-Host ""
+    Write-Host "========================================================" -ForegroundColor Yellow
+    Write-Host "  WARNING: Script is NOT running as Administrator" -ForegroundColor Yellow
+    Write-Host "========================================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  WILL BE SKIPPED (Requires Administrator):" -ForegroundColor Red
+    Write-Host "    [X] Security Event Log collection" -ForegroundColor Red
+    Write-Host "    [X] SFC (System File Checker) scans" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  WILL STILL COLLECT (No Admin Required):" -ForegroundColor Green
+    Write-Host "    [+] Basic System Information (Computer, BIOS, CPU, RAM)" -ForegroundColor Green
+    Write-Host "    [+] Disk Information (All drives with free space)" -ForegroundColor Green
+    Write-Host "    [+] Network Adapter Information (IP, MAC, Gateway, DNS)" -ForegroundColor Green
+    Write-Host "    [+] Local User Accounts" -ForegroundColor Green
+    Write-Host "    [+] Installed Updates and Hotfixes" -ForegroundColor Green
+    Write-Host "    [+] Installed Software (Win32_Product)" -ForegroundColor Green
+    Write-Host "    [+] Active Network Connections (TCP/UDP ports)" -ForegroundColor Green
+    Write-Host "    [+] Application, System, and PowerShell Event Logs" -ForegroundColor Green
+    Write-Host "    [+] Software License Information" -ForegroundColor Green
+    Write-Host "    [+] SCAP Scan (if selected and tool permits)" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  To run with full capabilities:" -ForegroundColor Cyan
+    Write-Host "    Right-click PowerShell -> 'Run as Administrator'" -ForegroundColor Cyan
+    Write-Host "    Then run this script again" -ForegroundColor Cyan
+    Write-Host ""
+
+    if (-not $Silent) {
+        $continue = Read-Host "Continue with limited scan? (Y/N)"
+        if ($continue -ne "Y" -and $continue -ne "y") {
+            Write-Host "Exiting..." -ForegroundColor Red
+            exit
+        }
+        Write-Host ""
+        Write-Host "  Continuing with limited scan..." -ForegroundColor Yellow
+    } else {
+        Write-Host "  Silent mode: Continuing with limited scan..." -ForegroundColor Yellow
+    }
+    Write-Host ""
+}
+#endregion
 
 # Load Windows Forms Assembly (compatible with PowerShell 2.0+)
 [void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
@@ -30,7 +163,8 @@ Windows Server 2012-2022
 #region GUI Configuration Form
 function Show-MOASConfigForm {
     param(
-        [string]$DefaultScapPath = ""
+        [string]$DefaultScapPath = "",
+        [bool]$IsAdministrator = $false
     )
 
     # Create the main form
@@ -126,10 +260,20 @@ function Show-MOASConfigForm {
 
     # SFC Description Label
     $lblSfcDesc = New-Object System.Windows.Forms.Label
-    $lblSfcDesc.Text = "Note: SFC scans can take a long time (especially at 22%)"
     $lblSfcDesc.Location = New-Object System.Drawing.Point(15, 50)
     $lblSfcDesc.Size = New-Object System.Drawing.Size(430, 20)
-    $lblSfcDesc.ForeColor = [System.Drawing.Color]::Gray
+
+    # Disable SFC options if not running as Administrator
+    if (-not $IsAdministrator) {
+        $rbSfcNone.Enabled = $false
+        $rbSfcScannow.Enabled = $false
+        $rbSfcVerify.Enabled = $false
+        $lblSfcDesc.Text = "SFC requires Administrator privileges (not available)"
+        $lblSfcDesc.ForeColor = [System.Drawing.Color]::Red
+    } else {
+        $lblSfcDesc.Text = "Note: SFC scans can take a long time (especially at 22%)"
+        $lblSfcDesc.ForeColor = [System.Drawing.Color]::Gray
+    }
     $sfcGroup.Controls.Add($lblSfcDesc)
 
     # Log Collection GroupBox
@@ -204,14 +348,18 @@ function Show-MOASConfigForm {
         if ($logDays -gt 365) { $logDays = 365 }
     }
 
-    # Return configuration as hashtable
-    return @{
+    # Return configuration as hashtable (PS 2.0 compatible)
+    $runScapValue = "2"
+    if ($chkScap.Checked) { $runScapValue = "1" }
+
+    $configResult = @{
         DialogResult = $result
-        RunSCAP = if ($chkScap.Checked) { "1" } else { "2" }
+        RunSCAP = $runScapValue
         ScapPath = $txtScapPath.Text
         RunSFC = $sfcChoice
         LogDays = $logDays
     }
+    return $configResult
 }
 #endregion
 
@@ -236,7 +384,6 @@ Write-Host -ForegroundColor Green "Creating the Save Folder"
 $ShortDate = Get-Date -Format "yyyyMMdd"
 $ScanSaveDir = "$ScriptDir\$ShortDate-$env:COMPUTERNAME"
 $null = New-Item -ItemType Directory -Force -Path $ScanSaveDir
-$scriptLocation = $PSScriptRoot
 # This is the output file
 $CSVBasicInfo = "$ScanSaveDir\$env:COMPUTERNAME-BasicInfo-$now.csv"
 $CSVUpdatesandHotfixes = "$ScanSaveDir\$env:COMPUTERNAME-UpdateandHotfixes-$now.csv"
@@ -250,26 +397,51 @@ $CSVInstalledSoftware = "$ScanSaveDir\$env:COMPUTERNAME-InstalledSoftware-$now.c
 $DefaultScapPath = Get-ChildItem $ScriptDir -Filter cscc.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { $_.FullName }
 if (-not $DefaultScapPath) { $DefaultScapPath = "" }
 
-# Show GUI Configuration Dialog
-Write-Host -ForegroundColor Green "Opening Configuration Dialog..."
-$Config = Show-MOASConfigForm -DefaultScapPath $DefaultScapPath
+# Initialize tracking variables for summary report
+$script:CollectedItems = @()
+$script:Warnings = @()
+$script:StartTime = Get-Date
 
-# Check if user cancelled
-if ($Config.DialogResult -ne [System.Windows.Forms.DialogResult]::OK) {
-    Write-Host -ForegroundColor Yellow "Operation cancelled by user."
-    exit
+# Silent mode or GUI mode
+if ($Silent) {
+    Write-Host -ForegroundColor Cyan "Running in Silent Mode..."
+    # Use command-line parameters
+    $RunSCAP = "2"
+    if ($RunSCAPParam) { $RunSCAP = "1" }
+    $ScapLocation = $ScapPathParam
+    if (-not $ScapLocation -and $RunSCAP -eq "1") { $ScapLocation = $DefaultScapPath }
+    $RunSFC = $RunSFCParam
+    $LogDays = $LogDaysParam
+    if ($LogDays -lt 1) { $LogDays = 1 }
+    if ($LogDays -gt 365) { $LogDays = 365 }
+} else {
+    # Show GUI Configuration Dialog
+    Write-Host -ForegroundColor Green "Opening Configuration Dialog..."
+    $Config = Show-MOASConfigForm -DefaultScapPath $DefaultScapPath -IsAdministrator $isAdmin
+
+    # Check if user cancelled
+    if ($Config.DialogResult -ne [System.Windows.Forms.DialogResult]::OK) {
+        Write-Host -ForegroundColor Yellow "Operation cancelled by user."
+        exit
+    }
+
+    # Set variables from GUI
+    $RunSCAP = $Config.RunSCAP
+    $ScapLocation = $Config.ScapPath
+    $RunSFC = $Config.RunSFC
+    $LogDays = $Config.LogDays
 }
 
-# Set variables from GUI
-$RunSCAP = $Config.RunSCAP
-$ScapLocation = $Config.ScapPath
-$RunSFC = $Config.RunSFC
-$LogDays = $Config.LogDays
-
+# Display configuration (PS 2.0 compatible)
 Write-Host -ForegroundColor Green "Configuration:"
-Write-Host "  Run SCAP: $(if ($RunSCAP -eq '1') { 'Yes' } else { 'No' })"
+$scapDisplay = "No"
+if ($RunSCAP -eq "1") { $scapDisplay = "Yes" }
+Write-Host "  Run SCAP: $scapDisplay"
 if ($RunSCAP -eq "1") { Write-Host "  SCAP Path: $ScapLocation" }
-Write-Host "  Run SFC: $(switch ($RunSFC) { '1' { 'SCANNOW' } '2' { 'VERIFYONLY' } default { 'No' } })"
+$sfcDisplay = "No"
+if ($RunSFC -eq "1") { $sfcDisplay = "SCANNOW" }
+if ($RunSFC -eq "2") { $sfcDisplay = "VERIFYONLY" }
+Write-Host "  Run SFC: $sfcDisplay"
 Write-Host "  Log Days: $LogDays"
 
 Write-Host -ForegroundColor Green "Writing Basic Information"
@@ -308,8 +480,50 @@ $BasicInfo += New-Object PSObject -Property @{Title="RAM"; Data=$RAM}
 
 $BasicInfo += New-Object PSObject -Property @{Title="Storage"; Data=$Storage}
 
+# Enhanced Disk Information - All drives with free space
+Write-Host -ForegroundColor Green "Getting Disk Information"
+$AllDisks = Get-WmiObject -Class Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue
+foreach ($Disk in $AllDisks) {
+    $diskSize = [math]::Round($Disk.Size / 1GB, 2)
+    $diskFree = [math]::Round($Disk.FreeSpace / 1GB, 2)
+    $diskUsedPercent = if ($Disk.Size -gt 0) { [math]::Round((($Disk.Size - $Disk.FreeSpace) / $Disk.Size) * 100, 1) } else { 0 }
+    $BasicInfo += New-Object PSObject -Property @{Title="Disk $($Disk.DeviceID) Size (GB)"; Data=$diskSize}
+    $BasicInfo += New-Object PSObject -Property @{Title="Disk $($Disk.DeviceID) Free (GB)"; Data=$diskFree}
+    $BasicInfo += New-Object PSObject -Property @{Title="Disk $($Disk.DeviceID) Used (%)"; Data=$diskUsedPercent}
+}
+$script:CollectedItems += "Disk Information"
 
-
+# Enhanced Network Information - All adapters
+Write-Host -ForegroundColor Green "Getting Network Adapter Information"
+$AllNetAdapters = Get-WmiObject -Class Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True" -ErrorAction SilentlyContinue
+$adapterIndex = 1
+foreach ($Adapter in $AllNetAdapters) {
+    $BasicInfo += New-Object PSObject -Property @{Title="Network Adapter $adapterIndex Description"; Data=$Adapter.Description}
+    if ($Adapter.IPAddress) {
+        $ipList = $Adapter.IPAddress -join "; "
+        $BasicInfo += New-Object PSObject -Property @{Title="Network Adapter $adapterIndex IP Address"; Data=$ipList}
+    }
+    if ($Adapter.MACAddress) {
+        $BasicInfo += New-Object PSObject -Property @{Title="Network Adapter $adapterIndex MAC Address"; Data=$Adapter.MACAddress}
+    }
+    if ($Adapter.DefaultIPGateway) {
+        $gwList = $Adapter.DefaultIPGateway -join "; "
+        $BasicInfo += New-Object PSObject -Property @{Title="Network Adapter $adapterIndex Gateway"; Data=$gwList}
+    }
+    if ($Adapter.DNSServerSearchOrder) {
+        $dnsList = $Adapter.DNSServerSearchOrder -join "; "
+        $BasicInfo += New-Object PSObject -Property @{Title="Network Adapter $adapterIndex DNS Servers"; Data=$dnsList}
+    }
+    if ($Adapter.DHCPEnabled) {
+        $dhcpStatus = "Enabled"
+        if ($Adapter.DHCPServer) { $dhcpStatus = "Enabled (Server: $($Adapter.DHCPServer))" }
+    } else {
+        $dhcpStatus = "Disabled (Static IP)"
+    }
+    $BasicInfo += New-Object PSObject -Property @{Title="Network Adapter $adapterIndex DHCP"; Data=$dhcpStatus}
+    $adapterIndex++
+}
+$script:CollectedItems += "Network Adapter Information"
 
 $Liscense | ForEach-Object {
     # Create a custom object for each string
@@ -330,7 +544,7 @@ $Liscense | ForEach-Object {
 
 
 $BasicInfo | Select-Object Title, Data | Export-Csv -Path $CSVBasicInfo -NoTypeInformation
-
+$script:CollectedItems += "Basic System Information"
 
 Write-Host -ForegroundColor Green "Getting Local Users"
 
@@ -342,15 +556,44 @@ $LocalUsers = $adsi.Children | where {$_.SchemaClassName -eq 'user'} | Foreach-O
     $_ | Select-Object @{n='UserName';e={$_.Name}}, @{n='Description';e={$_.Description}}, @{n='Groups';e={$groups -join ';'}}
 }
 $LocalUsers | Export-Csv -Path $CSVLocalUserList -NoTypeInformation
+$script:CollectedItems += "Local Users ($(@($LocalUsers).Count) users)"
 
 Write-Host -ForegroundColor Green "Getting HotFixes"
 
 # Updates and Hot Fixes
-$InstalledUpdates = Get-HotFix | Select-Object Description, HotFixID, Installedby, InstalledOn | Export-Csv -Path $CSVUpdatesandHotfixes -NoTypeInformation
+$InstalledUpdates = Get-HotFix -ErrorAction SilentlyContinue | Select-Object Description, HotFixID, Installedby, InstalledOn
+$InstalledUpdates | Export-Csv -Path $CSVUpdatesandHotfixes -NoTypeInformation
+$script:CollectedItems += "Installed Updates ($(@($InstalledUpdates).Count) hotfixes)"
 
 #Software List
+Write-Host -ForegroundColor Green "Getting Installed Software (this may take several minutes)..."
+Write-Host -ForegroundColor Gray "  Querying Win32_Product - please wait..."
 
-$InstalledSoftware = Get-WmiObject -Query "SELECT * FROM Win32_Product" | Select-Object Name, Vendor, Version | Export-Csv -Path $CSVInstalledSoftware -NoTypeInformation
+# Progress indicator for slow WMI query
+$softwareJob = Start-Job -ScriptBlock {
+    Get-WmiObject -Query "SELECT * FROM Win32_Product" | Select-Object Name, Vendor, Version
+}
+
+# Show progress while waiting (PS 2.0 compatible - dots instead of spinner)
+Write-Host -NoNewline "  Processing"
+$dotCount = 0
+while ($softwareJob.State -eq 'Running') {
+    Write-Host -NoNewline "."
+    $dotCount++
+    if ($dotCount -ge 60) {
+        # Start a new line after 60 dots to prevent very long lines
+        Write-Host ""
+        Write-Host -NoNewline "  Processing"
+        $dotCount = 0
+    }
+    Start-Sleep -Milliseconds 500
+}
+Write-Host " Done!"
+
+$InstalledSoftware = Receive-Job -Job $softwareJob
+Remove-Job -Job $softwareJob
+$InstalledSoftware | Export-Csv -Path $CSVInstalledSoftware -NoTypeInformation
+$script:CollectedItems += "Installed Software ($(@($InstalledSoftware).Count) items)"
 
 
 #PPS
@@ -492,6 +735,55 @@ if( $P.RemotePort -eq "63088") {$P.FRCS_Protocols = "SNC GENe"}
 if( $P.RemotePort -eq "63094") {$P.FRCS_Protocols = "SNC GENe"}
 if( $P.RemotePort -eq "65443") {$P.FRCS_Protocols = "SNC GENe"}
 
+# Additional ICS/SCADA Protocols
+if( $P.RemotePort -eq "789") {$P.FRCS_Protocols = "Red Lion Crimson v3"}
+if( $P.RemotePort -eq "1911") {$P.FRCS_Protocols = "Niagara Fox (Tridium)"}
+if( $P.RemotePort -eq "1962") {$P.FRCS_Protocols = "PCWorx"}
+if( $P.RemotePort -eq "2222") {$P.FRCS_Protocols = "EtherNet/IP"}
+if( $P.RemotePort -eq "2404") {$P.FRCS_Protocols = "IEC 60870-5-104"}
+if( $P.RemotePort -eq "2455") {$P.FRCS_Protocols = "WAGO I/O (PCWorx)"}
+if( $P.RemotePort -eq "4712") {$P.FRCS_Protocols = "Siemens WinCC OA"}
+if( $P.RemotePort -eq "4713") {$P.FRCS_Protocols = "Siemens WinCC OA"}
+if( $P.RemotePort -eq "4911") {$P.FRCS_Protocols = "Niagara Fox SSL (Tridium)"}
+if( $P.RemotePort -eq "5006") {$P.FRCS_Protocols = "Mitsubishi MELSEC-Q"}
+if( $P.RemotePort -eq "5007") {$P.FRCS_Protocols = "Mitsubishi MELSEC-Q"}
+if( $P.RemotePort -eq "5094") {$P.FRCS_Protocols = "HART-IP"}
+if( $P.RemotePort -eq "5095") {$P.FRCS_Protocols = "HART-IP"}
+if( $P.RemotePort -eq "9600") {$P.FRCS_Protocols = "OMRON FINS"}
+if( $P.RemotePort -eq "18245") {$P.FRCS_Protocols = "GE SRTP"}
+if( $P.RemotePort -eq "18246") {$P.FRCS_Protocols = "GE SRTP"}
+if( $P.RemotePort -eq "19999") {$P.FRCS_Protocols = "DNP3"}
+if( $P.RemotePort -eq "20256") {$P.FRCS_Protocols = "Unitronics PCOM"}
+if( $P.RemotePort -eq "20547") {$P.FRCS_Protocols = "ProConOS (PCWorx)"}
+if( $P.RemotePort -eq "41100") {$P.FRCS_Protocols = "Yokogawa CENTUM"}
+if( $P.RemotePort -eq "44818") {$P.FRCS_Protocols = "EtherNet/IP CIP"}
+if( $P.RemotePort -eq "48898") {$P.FRCS_Protocols = "Niagara Fox Secure"}
+if( $P.RemotePort -eq "57176") {$P.FRCS_Protocols = "CODESYS Runtime"}
+
+# Siemens S7 uses COTP/ISO-TSAP on port 102 (same as ICCP)
+if( $P.RemotePort -eq "102") {$P.FRCS_Protocols = "ICCP/Siemens S7 COTP"}
+
+# Honeywell Experion
+if( $P.RemotePort -eq "51000") {$P.FRCS_Protocols = "Honeywell Experion PKS"}
+if( $P.RemotePort -eq "51001") {$P.FRCS_Protocols = "Honeywell Experion PKS"}
+if( $P.RemotePort -eq "51002") {$P.FRCS_Protocols = "Honeywell Experion PKS"}
+
+# Schneider Electric
+if( $P.RemotePort -eq "1541") {$P.FRCS_Protocols = "Foxboro/Schneider DCS"}
+if( $P.RemotePort -eq "6000") {$P.FRCS_Protocols = "Schneider ClearSCADA"}
+if( $P.RemotePort -eq "6543") {$P.FRCS_Protocols = "Schneider Modicon"}
+
+# Rockwell/Allen-Bradley
+if( $P.RemotePort -eq "2221") {$P.FRCS_Protocols = "Rockwell Allen-Bradley DF1"}
+if( $P.RemotePort -eq "2223") {$P.FRCS_Protocols = "Rockwell Allen-Bradley EtherNet/IP"}
+if( $P.RemotePort -eq "17185") {$P.FRCS_Protocols = "Rockwell RSLinx"}
+
+# OPC Classic (DCOM)
+if( $P.RemotePort -eq "135") {$P.FRCS_Protocols = "OPC Classic (DCOM RPC)"}
+
+# IEC 61850
+if( $P.RemotePort -eq "102") {$P.FRCS_Protocols = "IEC 61850 MMS/ICCP/S7"}
+
 if( $P.RemotePort -ge "56001" -AND $P.RemotePort -le "56099" ) {$P.FRCS_Protocols = "Telvent OASyS DNA"}
 if( $P.RemotePort -ge "63027" -AND $P.RemotePort -le "63036" ) {$P.FRCS_Protocols = "SNC GENe"}
     }
@@ -542,11 +834,30 @@ foreach ($P in $UDPPorts) {
         if( $P.RemotePort -eq "55002") {$P.FRCS_Protocols = "FL-net Reception"}
         if( $P.RemotePort -eq "55003") {$P.FRCS_Protocols = "FL-net Transmission"}
 
+        # Additional ICS/SCADA UDP Protocols
+        if( $P.RemotePort -eq "69") {$P.FRCS_Protocols = "TFTP (ICS Firmware)"}
+        if( $P.RemotePort -eq "161") {$P.FRCS_Protocols = "SNMP"}
+        if( $P.RemotePort -eq "162") {$P.FRCS_Protocols = "SNMP Trap"}
+        if( $P.RemotePort -eq "1911") {$P.FRCS_Protocols = "Niagara Fox (Tridium)"}
+        if( $P.RemotePort -eq "4000") {$P.FRCS_Protocols = "Emerson/Fisher ROC Plus"}
+        if( $P.RemotePort -eq "4911") {$P.FRCS_Protocols = "Niagara Fox SSL (Tridium)"}
+        if( $P.RemotePort -eq "5094") {$P.FRCS_Protocols = "HART-IP"}
+        if( $P.RemotePort -eq "5095") {$P.FRCS_Protocols = "HART-IP"}
+        if( $P.RemotePort -eq "9600") {$P.FRCS_Protocols = "OMRON FINS"}
+        if( $P.RemotePort -eq "18245") {$P.FRCS_Protocols = "GE SRTP"}
+        if( $P.RemotePort -eq "18246") {$P.FRCS_Protocols = "GE SRTP"}
+        if( $P.RemotePort -eq "19999") {$P.FRCS_Protocols = "DNP3"}
+        if( $P.RemotePort -eq "41794") {$P.FRCS_Protocols = "Crestron (Building Automation)"}
+        if( $P.RemotePort -eq "47809") {$P.FRCS_Protocols = "BACnet/IP Secure"}
+        if( $P.RemotePort -eq "48898") {$P.FRCS_Protocols = "Niagara Fox Secure"}
+        if( $P.RemotePort -eq "57176") {$P.FRCS_Protocols = "CODESYS Runtime"}
+
             }
 
 $Ports += $UDPPorts
 
 $ShowPorts = $Ports | Select-Object LocalAddress,RemoteAddress,Proto,LocalPort,RemotePort,PID,ProcessName,FRCS_Protocols | Export-Csv -Path $CSVPPS -NoTypeInformation
+$script:CollectedItems += "Network Ports/Processes ($(@($Ports).Count) connections)"
 
 Write-Host -ForegroundColor Green "Pulling Log Files: This takes quite a bit (collecting $LogDays days of logs)"
 #Add Log Files
@@ -556,8 +867,10 @@ if ((New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsI
     $Date = (Get-Date).AddDays(-$LogDays)
     $AllLogResults = Get-WinEvent -WarningAction SilentlyContinue -FilterHashtable @{LogName=$Logs; StartTime=$Date; Level=1,2,3,4,0; ID=$EventID}
     $AllLogResults | Export-Csv -Path $CSVLogs -NoTypeInformation
+    $script:CollectedItems += "Event Logs ($(@($AllLogResults).Count) events, $LogDays days)"
     } else {
     Write-Host -ForegroundColor Yellow "Warning: Not running as Administrator - skipping Security log collection"
+    $script:Warnings += "Security log collection skipped (requires Administrator)"
     }
 
 If ($RunSCAP -eq "1"){
@@ -567,33 +880,123 @@ If ($RunSCAP -eq "1"){
         $null = New-Item -ItemType Directory -Force -Path $ScapSaveLocation
         Start-Process -NoNewWindow -Wait -FilePath $ScapLocation -ArgumentList "-u $ScapSaveLocation"
         Write-Host -ForegroundColor Green "SCAP is Finally Done!"
+        $script:CollectedItems += "SCAP Compliance Scan"
     } else {
         Write-Host -ForegroundColor Red "SCAP executable not found at: $ScapLocation"
+        $script:Warnings += "SCAP scan skipped (executable not found)"
         Write-Host -ForegroundColor Red "Skipping SCAP scan."
     }
 }
 
 If ($RunSFC -eq "1"){
-    Write-Host -ForegroundColor Green "Running SFC: Time for Coffee and maybe a nap. Note: SFC tends to take a long time at 22%"
-    Start-Process -FilePath "${env:Windir}\System32\SFC.EXE" -ArgumentList '/scannow' -Wait -NoNewWindow
-    Get-Content "C:\Windows\Logs\CBS\CBS.log" | Out-String | Out-File -FilePath $TXTSfc
+    if ($isAdmin) {
+        Write-Host -ForegroundColor Green "Running SFC: Time for Coffee and maybe a nap. Note: SFC tends to take a long time at 22%"
+        Start-Process -FilePath "${env:Windir}\System32\SFC.EXE" -ArgumentList '/scannow' -Wait -NoNewWindow
+        Get-Content "C:\Windows\Logs\CBS\CBS.log" -ErrorAction SilentlyContinue | Out-String | Out-File -FilePath $TXTSfc
+        $script:CollectedItems += "SFC Scan (SCANNOW)"
+    } else {
+        Write-Host -ForegroundColor Yellow "Skipping SFC SCANNOW - requires Administrator privileges"
+        $script:Warnings += "SFC SCANNOW skipped (requires Administrator)"
+    }
 }
 
 If ($RunSFC -eq "2"){
-    Write-Host -ForegroundColor Green "Running SFC: Time for Coffee and maybe a nap. Note: SFC tends to take a long time at 22%"
-    Start-Process -FilePath "${env:Windir}\System32\SFC.EXE" -ArgumentList '/verifyonly' -Wait -NoNewWindow
-    Get-Content "C:\Windows\Logs\CBS\CBS.log" | Out-String | Out-File -FilePath $TXTSfc
+    if ($isAdmin) {
+        Write-Host -ForegroundColor Green "Running SFC: Time for Coffee and maybe a nap. Note: SFC tends to take a long time at 22%"
+        Start-Process -FilePath "${env:Windir}\System32\SFC.EXE" -ArgumentList '/verifyonly' -Wait -NoNewWindow
+        Get-Content "C:\Windows\Logs\CBS\CBS.log" -ErrorAction SilentlyContinue | Out-String | Out-File -FilePath $TXTSfc
+        $script:CollectedItems += "SFC Scan (VERIFYONLY)"
+    } else {
+        Write-Host -ForegroundColor Yellow "Skipping SFC VERIFYONLY - requires Administrator privileges"
+        $script:Warnings += "SFC VERIFYONLY skipped (requires Administrator)"
+    }
 }
 
 Write-Host -ForegroundColor Green "Fixing Permissions"
-$AllItems=Get-ChildItem -Path $ScanSaveDir -Recurse -ErrorAction SilentlyContinue
-foreach ($Item in $AllItems){
-    $Acl = Get-Acl -ErrorAction SilentlyContinue -Path $Item.FullName
-    $Acl.SetAccessRuleProtection($false,$true)
-    $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule("everyone","FullControl","Containerinherit,Objectinherit","none","Allow")
+# Fix permissions on the scan directory and all contents
+# Handle the root scan directory first
+try {
+    $Acl = Get-Acl -Path $ScanSaveDir -ErrorAction Stop
+    $Acl.SetAccessRuleProtection($false, $true)
+    $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
     $Acl.AddAccessRule($AccessRule)
-    Set-Acl $Item.FullName $Acl -ErrorAction SilentlyContinue
-    Write-Host $Item
+    Set-Acl -Path $ScanSaveDir -AclObject $Acl -ErrorAction Stop
+    Write-Host "  $ScanSaveDir"
+} catch {
+    Write-Host -ForegroundColor Yellow "  Warning: Could not set permissions on $ScanSaveDir"
 }
 
-Write-Host -ForegroundColor Green "Script Complete"
+# Process all items in the directory
+$AllItems = Get-ChildItem -Path $ScanSaveDir -Recurse -ErrorAction SilentlyContinue
+foreach ($Item in $AllItems) {
+    try {
+        $Acl = Get-Acl -Path $Item.FullName -ErrorAction Stop
+        $Acl.SetAccessRuleProtection($false, $true)
+
+        if ($Item.PSIsContainer) {
+            # Directory: use inheritance flags
+            $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+        } else {
+            # File: no inheritance flags needed
+            $AccessRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Everyone", "FullControl", "None", "None", "Allow")
+        }
+
+        $Acl.AddAccessRule($AccessRule)
+        Set-Acl -Path $Item.FullName -AclObject $Acl -ErrorAction Stop
+        Write-Host "  $($Item.FullName)"
+    } catch {
+        Write-Host -ForegroundColor Yellow "  Warning: Could not set permissions on $($Item.FullName)"
+    }
+}
+
+#region Summary Report
+$script:EndTime = Get-Date
+$duration = $script:EndTime - $script:StartTime
+
+Write-Host ""
+Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host "             MOAS SCAN SUMMARY REPORT" -ForegroundColor Cyan
+Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Computer Name:    $env:COMPUTERNAME" -ForegroundColor White
+Write-Host "  Scan Date:        $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor White
+Write-Host "  Duration:         $([math]::Round($duration.TotalMinutes, 2)) minutes" -ForegroundColor White
+Write-Host "  Output Directory: $ScanSaveDir" -ForegroundColor White
+Write-Host ""
+
+Write-Host "  Data Collected:" -ForegroundColor Green
+foreach ($item in $script:CollectedItems) {
+    Write-Host "    [+] $item" -ForegroundColor Green
+}
+Write-Host ""
+
+# List output files
+Write-Host "  Output Files:" -ForegroundColor Cyan
+$outputFiles = Get-ChildItem -Path $ScanSaveDir -File -ErrorAction SilentlyContinue
+foreach ($file in $outputFiles) {
+    $sizeKB = [math]::Round($file.Length / 1KB, 1)
+    Write-Host "    - $($file.Name) ($sizeKB KB)" -ForegroundColor White
+}
+Write-Host ""
+
+# Show warnings if any
+if ($script:Warnings.Count -gt 0) {
+    Write-Host "  Warnings:" -ForegroundColor Yellow
+    foreach ($warning in $script:Warnings) {
+        Write-Host "    [!] $warning" -ForegroundColor Yellow
+    }
+    Write-Host ""
+}
+
+# Admin status reminder
+if (-not $isAdmin) {
+    Write-Host "  Note: Script ran without Administrator privileges." -ForegroundColor Yellow
+    Write-Host "        Some data may be incomplete (Security logs, SFC)." -ForegroundColor Yellow
+    Write-Host ""
+}
+
+Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host "                    SCAN COMPLETE" -ForegroundColor Cyan
+Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host ""
+#endregion
