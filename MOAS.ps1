@@ -1,5 +1,5 @@
 #This is a modification of FRCS-HW_SW_Inventory_v1.05 by an unknown author.
-#Author of Modification Daniel Barker daniel.barker.27@spaceforce.mil
+#Author of Modification Dan B
 #Released under GPL 2.0 Liscence
 
 <#
