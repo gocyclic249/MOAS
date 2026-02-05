@@ -2,7 +2,7 @@
 
 A PowerShell-based system inventory and audit tool for Windows environments. Originally based on FRCS-HW_SW_Inventory, extensively modified and enhanced for modern use.
 
-**Version:** 1.01
+**Version:** 1.02
 **Author:** Dan B
 **License:** GPL 2.0
 
@@ -151,6 +151,7 @@ The script identifies industrial control system protocols on network connections
 
 | Version | Changes |
 |---------|---------|
+| 1.02 | Fixed en-dash encoding bug that caused parsing errors on some systems |
 | 1.01 | Added -Help command-line flag |
 | 1.00 | Enhanced non-admin mode with detailed skip/collect list |
 | 0.99 | Admin check, enhanced disk/network info, progress indicator, silent mode, summary |
@@ -175,6 +176,28 @@ Security event logs require Administrator privileges. The script will collect Ap
 
 ### SCAP scan not running
 Verify the path to cscc.exe is correct and the file exists.
+
+### Parsing errors or "Expressions are only allowed as the first element of a pipeline"
+
+This is typically caused by file encoding issues. PowerShell 5.1 defaults to the system's ANSI encoding (usually Windows-1252) when a script file lacks a UTF-8 BOM (Byte Order Mark). If the file contains any non-ASCII characters (such as Unicode en-dashes, smart quotes, or accented characters from copy-paste), they can be misinterpreted and corrupt the parser state.
+
+**To check and fix encoding:**
+
+1. Open the script in Notepad (or Notepad++)
+2. Go to **File > Save As**
+3. In the **Encoding** dropdown, select **UTF-8 with BOM** (or **UTF-8-BOM** in Notepad++)
+4. Save and overwrite the file
+
+**To verify encoding in PowerShell:**
+```powershell
+# Check the first bytes of the file for a UTF-8 BOM (should be EF BB BF)
+Format-Hex .\MOAS.ps1 | Select-Object -First 1
+```
+
+**Prevention tips:**
+- When editing in any text editor, always save as **UTF-8 with BOM** for PowerShell scripts
+- Avoid copy-pasting code from web pages or Word documents, which can introduce smart quotes (`"` `"`) and en-dashes (`–`) that look like regular characters but are different Unicode code points
+- If transferring the script between systems, use Git or binary-safe file transfer to preserve encoding
 
 ## License
 
