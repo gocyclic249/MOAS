@@ -20,6 +20,7 @@ V.98 Added additional ICS/SCADA protocol port detection
 V.99 Added admin check, enhanced disk/network info, progress indicator, silent mode, summary report
 V1.00 Enhanced non-admin mode: detailed skip/collect list, graceful degradation for SFC, GUI shows SFC as disabled when not admin
 V1.01 Added -Help command-line flag with comprehensive usage documentation
+V1.02 Fixed en-dash encoding bug: replaced Unicode en-dashes (U+2013) with ASCII hyphens on Add-Member calls
 Known Working Systems:
 Windows 7 Powershell 2.0
 Windows 10 Powershell 5.0
@@ -620,7 +621,7 @@ Write-Host -ForegroundColor Green "Getting TCP and UDP Ports"
         LocalPort,RemotePort,State,PID,
        ProcessName |Where-Object { $_.LocalAddress -notmatch "127.0.0.1|0.0.0.0|::1|::" -and $_.RemoteAddress -notmatch "127.0.0.1|0.0.0.0|::1|::" -and $_.State -eq "ESTABLISHED"} | Sort-Object -Property ProcessName
 
-$Ports | add-member –membertype NoteProperty –name FRCS_Protocols –value n/a -ErrorAction SilentlyContinue
+$Ports | add-member -membertype NoteProperty -name FRCS_Protocols -value n/a -ErrorAction SilentlyContinue
 foreach ($P in $Ports) {
         if( $P.RemotePort -eq "80") {$P.FRCS_Protocols = "HTTP"}
         if( $P.RemotePort -eq "443") {$P.FRCS_Protocols = "HTTPS"}
@@ -808,7 +809,7 @@ if( $P.RemotePort -ge "63027" -AND $P.RemotePort -le "63036" ) {$P.FRCS_Protocol
         @{Name="Proto";Expression={"UDP"}},
         LocalPort, ProcessName| Where-Object {$_.LocalAddress -notmatch "127.0.0.1|0.0.0.0|::1|::"} | Sort-Object -Property ProcessName
 
-$UDPPorts | add-member –membertype NoteProperty –name FRCS_Protocols –value n/a -ErrorAction SilentlyContinue
+$UDPPorts | add-member -membertype NoteProperty -name FRCS_Protocols -value n/a -ErrorAction SilentlyContinue
 foreach ($P in $UDPPorts) {
         if( $P.Proto -eq "UDP") {$P.RemotePort = $P.LocalPort}
         if( $P.RemotePort -eq "1089") {$P.FRCS_Protocols = "Foundation Fieldbus HSE"}
