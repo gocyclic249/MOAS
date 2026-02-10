@@ -44,7 +44,7 @@ param(
 if ($Help) {
     Write-Host ""
     Write-Host "========================================================" -ForegroundColor Cyan
-    Write-Host "  MOAS - System Inventory and Audit Tool v1.01" -ForegroundColor Cyan
+    Write-Host "  MOAS - System Inventory and Audit Tool v1.02" -ForegroundColor Cyan
     Write-Host "========================================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "DESCRIPTION:" -ForegroundColor Yellow
@@ -863,7 +863,7 @@ $script:CollectedItems += "Network Ports/Processes ($(@($Ports).Count) connectio
 Write-Host -ForegroundColor Green "Pulling Log Files: This takes quite a bit (collecting $LogDays days of logs)"
 #Add Log Files
 if ((New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    $EventID = '4624','4704','4740','1102','4946','6412','4672' #What Events We Care About
+    $EventID = '4624','4625','4672','4704','4740','4946','6412','1102','10000','11010' #What Events We Care About
     $Logs = 'Application','Security','System','Windows PowerShell' #Logs to Search
     $Date = (Get-Date).AddDays(-$LogDays)
     $AllLogResults = Get-WinEvent -WarningAction SilentlyContinue -FilterHashtable @{LogName=$Logs; StartTime=$Date; Level=1,2,3,4,0; ID=$EventID}
