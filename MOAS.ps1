@@ -21,6 +21,7 @@ V.99 Added admin check, enhanced disk/network info, progress indicator, silent m
 V1.00 Enhanced non-admin mode: detailed skip/collect list, graceful degradation for SFC, GUI shows SFC as disabled when not admin
 V1.01 Added -Help command-line flag with comprehensive usage documentation
 V1.02 Fixed en-dash encoding bug: replaced Unicode en-dashes (U+2013) with ASCII hyphens on Add-Member calls
+V1.03 Removed redundant Level filter from log collection; fixes partial results on Windows 11 after Feb 2026 update
 Known Working Systems:
 Windows 7 Powershell 2.0
 Windows 10 Powershell 5.0
@@ -44,7 +45,7 @@ param(
 if ($Help) {
     Write-Host ""
     Write-Host "========================================================" -ForegroundColor Cyan
-    Write-Host "  MOAS - System Inventory and Audit Tool v1.02" -ForegroundColor Cyan
+    Write-Host "  MOAS - System Inventory and Audit Tool v1.03" -ForegroundColor Cyan
     Write-Host "========================================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "DESCRIPTION:" -ForegroundColor Yellow
@@ -861,12 +862,12 @@ $ShowPorts = $Ports | Select-Object LocalAddress,RemoteAddress,Proto,LocalPort,R
 $script:CollectedItems += "Network Ports/Processes ($(@($Ports).Count) connections)"
 
 Write-Host -ForegroundColor Green "Pulling Log Files: This takes quite a bit (collecting $LogDays days of logs)"
-#Add Log Files
+#Add Log Files - No Level filter needed; ID list is sufficient and Level=0 breaks on Win11 post-Feb 2026 update
 if ((New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $EventID = '4624','4625','4672','4704','4740','4946','6412','1102','10000','11010' #What Events We Care About
     $Logs = 'Application','Security','System','Windows PowerShell' #Logs to Search
     $Date = (Get-Date).AddDays(-$LogDays)
-    $AllLogResults = Get-WinEvent -WarningAction SilentlyContinue -FilterHashtable @{LogName=$Logs; StartTime=$Date; Level=1,2,3,4,0; ID=$EventID}
+    $AllLogResults = Get-WinEvent -WarningAction SilentlyContinue -FilterHashtable @{LogName=$Logs; StartTime=$Date; ID=$EventID}
     $AllLogResults | Export-Csv -Path $CSVLogs -NoTypeInformation
     $script:CollectedItems += "Event Logs ($(@($AllLogResults).Count) events, $LogDays days)"
     } else {

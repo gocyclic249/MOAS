@@ -2,7 +2,7 @@
 
 A PowerShell-based system inventory and audit tool for Windows environments. Originally based on FRCS-HW_SW_Inventory, extensively modified and enhanced for modern use.
 
-**Version:** 1.02
+**Version:** 1.03
 **Author:** Dan B
 **License:** GPL 2.0
 
@@ -151,6 +151,7 @@ The script identifies industrial control system protocols on network connections
 
 | Version | Changes |
 |---------|---------|
+| 1.03 | Removed redundant Level filter from log collection to fix partial results on Windows 11 |
 | 1.02 | Fixed en-dash encoding bug that caused parsing errors on some systems |
 | 1.01 | Added -Help command-line flag |
 | 1.00 | Enhanced non-admin mode with detailed skip/collect list |
@@ -173,6 +174,9 @@ SFC requires Administrator privileges. Run PowerShell as Administrator.
 
 ### Missing Security logs
 Security event logs require Administrator privileges. The script will collect Application, System, and PowerShell logs without admin.
+
+### Partial or missing events on Windows 11
+A Windows 11 cumulative update (late February 2026) changed how `Get-WinEvent` handles `Level=0` (LogAlways) in `FilterHashtable` queries, silently dropping events at that level. Many Security audit events (4624, 4625, 4672, etc.) use Level 0. This was fixed in v1.03 by removing the redundant Level filter — the query filters by specific Event IDs, which is sufficient.
 
 ### SCAP scan not running
 Verify the path to cscc.exe is correct and the file exists.
